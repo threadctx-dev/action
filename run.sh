@@ -3,7 +3,7 @@
 # Inputs arrive as environment variables, never interpolated into this script.
 set -uo pipefail
 
-: "${TCTX_VERSION:=0.1.0}" "${TCTX_PATH:=.}" "${TCTX_FAIL_ON:=blocker}" "${TCTX_EVENT_NAME:=push}"
+: "${TCTX_VERSION:=0.2.0}" "${TCTX_PATH:=.}" "${TCTX_FAIL_ON:=blocker}" "${TCTX_EVENT_NAME:=push}"
 OUT="${RUNNER_TEMP:-/tmp}/threadctx"
 GITHUB_OUTPUT="${GITHUB_OUTPUT:-/dev/null}"
 GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -44,13 +44,18 @@ if [ -n "$base_sha" ] && git fetch --no-tags --depth=1 origin "$base_sha" 2>/dev
    && git worktree add --detach "$OUT/base" "$base_sha" >/dev/null 2>&1 \
    && "${T[@]}" scan "$OUT/base/$TCTX_PATH" --format json --output "$OUT/base.json" --fail-on none --no-color 2>/dev/null \
    && [ -s "$OUT/base.json" ]; then
-  "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --format md --output "$OUT/body.md" --fail-on none
-  "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --format json --output "$OUT/compare.json" --fail-on none
-  "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --fail-on "$TCTX_FAIL_ON" >/dev/null 2>&1
-  exit_code=$?
-  new=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).added.length)' "$OUT/compare.json")
-  echo "new_findings=$new" >>"$GITHUB_OUTPUT"
-else
+  if "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --format md --output "$OUT/body.md" --fail-on none \
+     && "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --format json --output "$OUT/compare.json" --fail-on none; then
+    "${T[@]}" compare "$OUT/base.json" "$OUT/head.json" --fail-on "$TCTX_FAIL_ON" >/dev/null 2>&1
+    exit_code=$?
+    new=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).added.length)' "$OUT/compare.json")
+    echo "new_findings=$new" >>"$GITHUB_OUTPUT"
+  else
+    echo "::warning::Could not compare with the base branch (threadctx $TCTX_VERSION); reporting all findings."
+    base_sha=""
+  fi
+fi
+if [ -z "$base_sha" ] || [ ! -s "$OUT/body.md" ]; then
   # Not a pull request, or the base commit was not reachable: report everything, gate on the full scan.
   [ -n "$base_sha" ] && echo "::notice::Could not read the base commit; reporting all findings instead of only new ones."
   "${T[@]}" scan "$TCTX_PATH" --format md --output "$OUT/body.md" --fail-on none --no-color 2>/dev/null

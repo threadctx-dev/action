@@ -20,7 +20,7 @@ inputs:
     default: "true"
   version:
     description: "threadctx version to run. Pinned so a new release never changes your CI."
-    default: "0.1.0"
+    default: "0.2.0"
 
 outputs:
   grade:
